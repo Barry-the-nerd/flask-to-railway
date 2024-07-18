@@ -92,7 +92,8 @@ username = f"your.name@{rp_id}"
 
 @app.route('/', methods=['GET'])
 def root():
-
+    global rp_id, origin
+     
     scheme = request.headers.get('X-Forwarded-Proto', request.scheme)
     host = request.headers.get('X-Forwarded-Host', request.headers.get('Host'))
     rp_id = f"{host}"
