@@ -2,19 +2,21 @@ name: Deploy to Railway
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main  # or the branch you want to deploy from
+  workflow_dispatch:  # Manual trigger
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     
     steps:
-    - uses: actions/checkout@v2
-      
-    - name: Set up Python
-      uses: actions/setup-python@v2
+
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
       with:
-        python-version: '3.11'  # or whichever version you're using
+        python-version: '3.12.4' 
+    #- run: python my_script.py      
       
     - name: Install dependencies
       run: |
@@ -22,7 +24,7 @@ jobs:
         pip install -r requirements.txt
       
     - name: Use Node 16
-      uses: actions/setup-node@v2
+      uses: actions/setup-node@v4
       with:
         node-version: '16.x'
       
