@@ -95,7 +95,7 @@ def root():
 
     scheme = request.headers.get('X-Forwarded-Proto', request.scheme)
     host = request.headers.get('X-Forwarded-Host', request.headers.get('Host'))
-    rp_id = f"{scheme}"
+    rp_id = f"{host}"
     origin = f"{scheme}://{host}"
  
     context = {
