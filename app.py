@@ -1,9 +1,9 @@
-from typing import Dict
+from typing import Dict, Optional, List
+from dataclasses import dataclass, field
 import json
 import os
 
-from flask import Flask, render_template, request, jsonify, redirect, url_for, render_template_string
-import requests
+from flask import Flask, render_template, request, jsonify, redirect, url_for
 from webauthn import (
     generate_registration_options,
     verify_registration_response,
@@ -16,16 +16,11 @@ from webauthn.helpers.structs import (
     UserVerificationRequirement,
     RegistrationCredential,
     AuthenticationCredential,
+    AuthenticatorTransport,
 )
 from webauthn.helpers.cose import COSEAlgorithmIdentifier
 
-# from .models import Credential, UserAccount
-#######
-from typing import Optional, List
-from dataclasses import dataclass, field
-
-from webauthn.helpers.structs import AuthenticatorTransport
-
+# Data models
 @dataclass
 class Credential:
     id: bytes
@@ -43,111 +38,66 @@ class SessionVar:
     username: str
     expected_challenge: str
 
-# A simple way to persist credentials by user ID
-# in_memory_db: Dict[str, UserAccount] = {}
-
-# A simple way to persist challenges until response verification
-# current_registration_challenge = None
-# current_authentication_challenge = None
-
-in_memory_db: dict[str, UserAccount] = {} 
-in_memory_session: dict[str, SessionVar] = {}
+# In-memory storage
+in_memory_db: Dict[str, UserAccount] = {}
+in_memory_session: Dict[str, SessionVar] = {}
 
 app = Flask(__name__)
 
-
-################
-#
-# Functions
-#
-################
+# Relying Party Configuration
+RP_ID = "localhost"
+RP_NAME = "Sample Relying Party"
+ORIGIN = f"http://{RP_ID}:5000"  # Default, to be modified in root()
 
 def update_session(username: str, challenge: str) -> None:
-    if username in in_memory_session:
-        in_memory_session[username].expected_challenge = challenge
-    else:
-        session = SessionVar(username=username, expected_challenge=challenge)
-        in_memory_session[username] = session
-    return
+    """Update or create a session for a user with a new challenge."""
+    in_memory_session[username] = SessionVar(username=username, expected_challenge=challenge)
 
-################
-#
-# Relying Party Configuration
-#
-################
-port = "8000"
-
-rp_id = "localhost"
-origin = "http://" + rp_id + ":" + port
-rp_name = "Sample Relying Party"
-user_id = "some_random_user_identifier_like_a_uuid"
-username = f"your.name@{rp_id}"
-#username = "your.name@test.com"
-
-################
-#
-# Views
-#
-################
-
-@app.route('/', methods=['GET'])
+@app.route('/')
 def root():
-    global rp_id, origin
-     
+    """Render the main page and update global configuration."""
+    global RP_ID, ORIGIN
+    
     scheme = request.headers.get('X-Forwarded-Proto', request.scheme)
     host = request.headers.get('X-Forwarded-Host', request.headers.get('Host'))
-    rp_id = f"{host}"
-    origin = f"{scheme}://{host}"
- 
-    context = {
-        "rp_id": rp_id,
-        "rp_name": rp_name,
-        "origin": origin,
-        "port": port,
-    }
-    return render_template('index.html', **context)
+    host_without_port = host.split(':')[0]
+    RP_ID = host_without_port
+    ORIGIN = f"{scheme}://{host}"
 
-@app.route('/sys', methods=['GET','POST'])
+    return render_template('index.html', rp_id=RP_ID, rp_name=RP_NAME, origin=ORIGIN)
+
+@app.route('/sys', methods=['GET', 'POST'])
 def sys():
-    global rp_id
-    global origin
-    global rp_name
+    """Handle system configuration updates."""
+    global RP_ID, ORIGIN, RP_NAME
+    
     if request.method == 'GET':
         context = {
-            "rp_id": rp_id,
-            "rp_name": rp_name,
-            "origin": origin,
-            "port": port
+            "rp_id": RP_ID,
+            "rp_name": RP_NAME,
+            "origin": ORIGIN,
+            "user_data": in_memory_db
         }
-        return render_template('sys.html', **context, user_data=in_memory_db)
+        return render_template('sys.html', **context)
     else:
-        rp_id = request.form['rp_id']
-        origin = request.form['origin']
-        rp_name = request.form['rp_name']
+        RP_ID = request.form['rp_id']
+        ORIGIN = request.form['origin']
+        RP_NAME = request.form['rp_name']
         return redirect(url_for('root'))
-
-
-################
-#
-# Registration
-#
-################
 
 @app.route('/register', methods=['POST'])
 def register():
-    global current_authentication_challenge
+    """Handle user registration."""
     username = request.form['username']
 
     if username not in in_memory_db:
-        new_user = UserAccount(username=username)
-        in_memory_db[username] = new_user
+        in_memory_db[username] = UserAccount(username=username)
     
     user = in_memory_db[username]
 
-    # webauthn module function
     options = generate_registration_options(
-        rp_id=rp_id,
-        rp_name=rp_name,
+        rp_id=RP_ID,
+        rp_name=RP_NAME,
         user_id=user.username,
         user_name=user.username,
         exclude_credentials=[
@@ -162,38 +112,27 @@ def register():
             COSEAlgorithmIdentifier.RSASSA_PKCS1_v1_5_SHA_256,
         ],
     )
-    # webauthn module function
-    response = options_to_json(options)
-    # response = jsonify({'message': 'User registered successfully!'})
 
-    # current_authentication_challenge = options.challenge
-    update_session(user.username,options.challenge)
-    return response
+    update_session(user.username, options.challenge)
+    return options_to_json(options)
 
 @app.route("/verify-registration", methods=["POST"])
-def handler_verify_registration():
-    post_payload = request.get_data()
-    json_data = json.loads(post_payload)
-    body = bytes(json_data.get("original_json"), encoding="utf-8")
-    username = json_data.get("username")
-
-    if username in in_memory_session: 
-        current_challenge = in_memory_session[username].expected_challenge
-    else:
-        current_challenge = None
+def verify_registration():
+    """Verify the registration response from the client."""
+    data = request.json
+    body = data.get("original_json").encode()
+    username = data.get("username")
 
     try:
         credential = RegistrationCredential.parse_raw(body)
         verification = verify_registration_response(
             credential=credential,
-            expected_challenge=current_challenge,
-            expected_rp_id=rp_id,
-            expected_origin=origin,
+            expected_challenge=in_memory_session[username].expected_challenge,
+            expected_rp_id=RP_ID,
+            expected_origin=ORIGIN,
         )
     except Exception as err:
-        return {"verified": False, "msg": str(err), "status": 400}
-
-    user = in_memory_db[username]
+        return jsonify(verified=False, msg=str(err)), 400
 
     new_credential = Credential(
         id=verification.credential_id,
@@ -202,83 +141,60 @@ def handler_verify_registration():
         transports=json.loads(body).get("transports", []),
     )
 
-    user.credentials.append(new_credential)
-
-    return {"verified": True}
-
-################
-#
-# Authentication
-#
-################
+    in_memory_db[username].credentials.append(new_credential)
+    return jsonify(verified=True)
 
 @app.route('/authenticate', methods=['POST'])
 def authenticate():
+    """Handle user authentication."""
     username = request.form['username']
 
-    if username in in_memory_db:
-        user = in_memory_db[username]
+    if username not in in_memory_db:
+        return jsonify(message='User does not exist!'), 404
 
-        options = generate_authentication_options(
-            rp_id=rp_id,
-            allow_credentials=[
-                {"type": "public-key", "id": cred.id, "transports": cred.transports}
-                for cred in user.credentials
-            ],
-            user_verification=UserVerificationRequirement.REQUIRED,
-        )
+    user = in_memory_db[username]
+    options = generate_authentication_options(
+        rp_id=RP_ID,
+        allow_credentials=[
+            {"type": "public-key", "id": cred.id, "transports": cred.transports}
+            for cred in user.credentials
+        ],
+        user_verification=UserVerificationRequirement.REQUIRED,
+    )
 
-        # current_authentication_challenge = options.challenge
-        update_session(user.username,options.challenge)
-        response = options_to_json(options)
-    else:
-        response = jsonify({'message': 'User does not exist!'})
-
-    return response
+    update_session(user.username, options.challenge)
+    return options_to_json(options)
 
 @app.route('/verify-authentication', methods=['POST'])
-def handler_verify_authentication():
-    post_payload = request.get_data()
-    json_data = json.loads(post_payload)
-    body = bytes(json_data.get("original_json"), encoding="utf-8")
-    username = json_data.get("username")
+def verify_authentication():
+    """Verify the authentication response from the client."""
+    data = request.json
+    body = data.get("original_json").encode()
+    username = data.get("username")
 
     try:
         credential = AuthenticationCredential.parse_raw(body)
-
-        # Find the user's corresponding public key
         user = in_memory_db[username]
-        user_credential = None
-        for _cred in user.credentials:
-            if _cred.id == credential.raw_id:
-                user_credential = _cred
+        user_credential = next((cred for cred in user.credentials if cred.id == credential.raw_id), None)
 
-        if user_credential is None:
-            raise Exception("Could not find corresponding public key in DB")
+        if not user_credential:
+            raise ValueError("Could not find corresponding public key in DB")
 
-        if username in in_memory_session: 
-            current_challenge = in_memory_session[username].expected_challenge
-        else:
-            current_challenge = None
-
-        # Verify the assertion
         verification = verify_authentication_response(
             credential=credential,
-            expected_challenge=current_challenge,
-            expected_rp_id=rp_id,
-            expected_origin=origin,
+            expected_challenge=in_memory_session[username].expected_challenge,
+            expected_rp_id=RP_ID,
+            expected_origin=ORIGIN,
             credential_public_key=user_credential.public_key,
             credential_current_sign_count=user_credential.sign_count,
             require_user_verification=True,
         )
     except Exception as err:
-        return {"verified": False, "msg": str(err), "status": 400}
+        return jsonify(verified=False, msg=str(err)), 400
 
-    # Update our credential's sign count to what the authenticator says it is now
     user_credential.sign_count = verification.new_sign_count
-
-    return {"verified": True}
+    return jsonify(verified=True)
 
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+    port = int(os.environ.get('PORT', 8000))    # railway.app set environment variable of the app
+    app.run(host='0.0.0.0', port=port, debug=True)

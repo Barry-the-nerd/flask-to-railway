@@ -20,7 +20,6 @@ pathspec==0.9.0
 platformdirs==2.4.1
 pycparser==2.21
 pyOpenSSL==21.0.0
-requests==2.32.3
 six==1.16.0
 tomli==1.2.3
 typing_extensions==4.0.1
