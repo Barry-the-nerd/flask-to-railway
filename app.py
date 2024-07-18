@@ -75,10 +75,9 @@ def update_session(username: str, challenge: str) -> None:
 # Relying Party Configuration
 #
 ################
-port = "8000"
-
-rp_id = "localhost"
-origin = "http://" + rp_id + ":" + port
+port = "5000"           # default to 5000 for flask, to be modified in root()
+rp_id = "localhost"     # default to localhost, to be modifed in root()
+origin = "http://" + rp_id + ":" + port # to be modified in root()
 rp_name = "Sample Relying Party"
 user_id = "some_random_user_identifier_like_a_uuid"
 username = f"your.name@{rp_id}"
