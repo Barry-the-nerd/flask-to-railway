@@ -2,13 +2,6 @@ from typing import Dict
 import json
 import os
 
-#>>>>>>>>>>>>>>>>>
-import time
-import threading
-import sched
-import random
-#<<<<<<<<<<<<<<<<<
-
 from flask import Flask, render_template, request, jsonify, redirect, url_for, render_template_string
 import requests
 from webauthn import (
@@ -61,32 +54,6 @@ in_memory_db: dict[str, UserAccount] = {}
 in_memory_session: dict[str, SessionVar] = {}
 
 app = Flask(__name__)
-#>>>>>>>>>>>>>>>>>
-scheduler = sched.scheduler(time.time, time.sleep)
-scheduler_thread = None
-stop_event = threading.Event()
-interval_range = (3, 5)
-website_to_visit = "https://www.google.com"
-
-def visit_website():
-    try:
-        response = requests.get(website_to_visit)
-        print(f"Visited {website_to_visit} at {time.strftime('%Y-%m-%d %H:%M:%S')}: {response.status_code}")
-    except Exception as e:
-        print(f"Error visiting {website_to_visit} at {time.strftime('%Y-%m-%d %H:%M:%S')}: {e}")
-
-def schedule_visits(action, actionargs=()):
-    if not stop_event.is_set():
-        interval = random.randint(*interval_range)
-        scheduler.enter(interval, 1, schedule_visits, (action, actionargs))
-        action(*actionargs)
-
-def start_scheduler():
-    stop_event.clear()
-    schedule_visits(visit_website)
-    scheduler.run()
-
-#<<<<<<<<<<<<<<<<<
 
 
 ################
@@ -152,38 +119,6 @@ def sys():
         rp_name = request.form['rp_name']
         return redirect(url_for('root'))
 
-#>>>>>>>>>>>>>>>>>
-@app.route('/home')
-def home():
-    return "Website visitor is running in the background with random intervals!"
-
-@app.route('/parameters', methods=['GET', 'POST'])
-def parameters():
-    global interval_range, website_to_visit
-    if request.method == 'POST':
-        try:
-            min_interval = int(request.form['min_interval'])
-            max_interval = int(request.form['max_interval'])
-            site = request.form['site']
-            interval_range = (min_interval, max_interval)
-            website_to_visit = site
-            message = f"Interval range updated to {min_interval} - {max_interval} seconds. Website to visit updated to {site}."
-            print(message)
-            return message
-        except ValueError:
-            return "Invalid input. Please enter integer values for the interval."
-    
-    return f'''
-    <form method="post">
-        Minimum Interval (seconds): <input type="text" name="min_interval" value="{interval_range[0]}"><br>
-        Maximum Interval (seconds): <input type="text" name="max_interval" value="{interval_range[1]}"><br>
-        Website to visit: <input type="text" name="site" value="{website_to_visit}"><br>
-        <input type="submit" value="Submit">
-    </form>
-    <p>Current Interval: {interval_range[0]} - {interval_range[1]} seconds</p>
-    <p>Current Website to visit: {website_to_visit}</p>
-    '''
-#<<<<<<<<<<<<<<<<<
 
 ################
 #
@@ -337,9 +272,5 @@ def handler_verify_authentication():
 
     return {"verified": True}
 
-
 if __name__ == '__main__':
-    ####app.run(debug=True, port=port)
-#    app.run(debug=True, port=os.getenv("PORT", default=5000))
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)    
+    app.run(debug=True, port=os.getenv("PORT", default=5000))
