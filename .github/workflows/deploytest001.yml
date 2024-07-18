@@ -1,9 +1,9 @@
 name: Deploy to Railway
 
 on:
-  push:
-    branches:
-      - main  # or the branch you want to deploy from
+#  push:
+#    branches:
+#      - main  # or the branch you want to deploy from
   workflow_dispatch:  # Manual trigger
 
 jobs:
@@ -23,10 +23,10 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
       
-    - name: Use Node 16
+    - name: Use Node 22
       uses: actions/setup-node@v4
       with:
-        node-version: '16.x'
+        node-version: '22.x'
       
     - name: Install Railway CLI
       run: npm i -g @railway/cli
